@@ -9,7 +9,7 @@ const router = Router();
 
 router.post("/registeruser", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, currency  } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
@@ -19,7 +19,7 @@ router.post("/registeruser", async (req, res) => {
     }
     const hash = await bcrypt.hash(password, 10);
     const user = await User.create({ name, email, password: hash });
-    await Wallet.create({ userId: user.id });
+    await Wallet.create({ userId: user.id, currency: currency || "USD", });
     return res.status(201).json({ message: "User registered" });
   } catch (error) {
     console.error(error);
