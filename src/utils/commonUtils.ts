@@ -11,7 +11,6 @@ export const checkDailyLimit = async (walletId: string, amount: number) => {
       createdAt: { [Op.gte]: new Date().setHours(0,0,0,0) }
     }
   });
-
   if ((Number(total) || 0) + amount > DAILY_LIMIT) {
     throw new Error("Daily limit exceeded");
   }
