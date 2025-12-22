@@ -4,6 +4,12 @@ import { auth, AuthRequest } from "../utils/authUtils";
 import { User, Wallet } from "../models/modelRelations";
 import { WalletTransaction } from "../models/trasactionsModel";
 import { checkDailyLimit, convertCurrency } from "../utils/commonUtils";
+import { z } from "zod";
+
+export const validateWithDraw = z.object({
+  amount: z.number().positive()
+});
+
 
 const router = Router();
 
@@ -152,38 +158,58 @@ router.post("/wallettransfer", auth, async (req: AuthRequest, res) => {
 
 router.post("/withdraw", auth, async (req: AuthRequest, res) => {
   try {
+    const parsed = validateWithDraw.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: "Invalid request",
+      });
+    }
     const userId = req.userId;
     const { amount } = req.body;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    if (!amount || amount <= 0) return res.status(400).json({ message: "Invalid amount" });
-    const wallet = await Wallet.findOne({ where: { userId } });
-    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
-    if (wallet.balance < amount) {
-      return res.status(400).json({ message: "Insufficient funds" });
-    }
-    await sequelize.transaction(async (t) => {
+    if (!amount || amount <= 0)
+      return res.status(400).json({ message: "Invalid amount" });
+    const result = await sequelize.transaction(async (t) => {
+      const wallet = await Wallet.findOne({
+        where: { userId },
+        transaction: t,
+        lock: t.LOCK.UPDATE
+      });
+      if (!wallet) throw new Error("WALLET_NOT_FOUND");
+      if (Number(wallet.balance) < amount) throw new Error("INSUFFICIENT_FUNDS");
+      const balanceBefore = wallet.balance;
       await wallet.decrement({ balance: amount }, { transaction: t });
       await WalletTransaction.create(
         {
           walletId: wallet.id,
           type: "DEBIT",
           amount,
-          currency: wallet.currency
+          currency: wallet.currency,
+          balanceBefore,
+          balanceAfter: balanceBefore - amount
         },
         { transaction: t }
       );
+      return wallet;
     });
-    const updatedWallet = await wallet.reload();
-    res.json({
+    await result.reload(); 
+    return res.json({
       message: "Withdrawal successful",
-      balance: updatedWallet.balance,
-      currency: updatedWallet.currency
+      balance: result.balance,
+      currency: result.currency
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message === "INSUFFICIENT_FUNDS") {
+      return res.status(400).json({ message: "Insufficient funds" });
+    }
+    if (error.message === "WALLET_NOT_FOUND") {
+      return res.status(404).json({ message: "Wallet not found" });
+    }
     console.error(error);
-    res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: "Internal server error" });
   }
 });
+
 
 router.get("/wallettransactions", auth, async (req: AuthRequest, res) => {
   const wallet = await Wallet.findOne({ where: { userId: req.userId } });
