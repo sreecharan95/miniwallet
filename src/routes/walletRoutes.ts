@@ -6,10 +6,11 @@ import { WalletTransaction } from "../models/trasactionsModel";
 import { checkDailyLimit, convertCurrency } from "../utils/commonUtils";
 import { z } from "zod";
 
-export const validateWithDraw = z.object({
-  amount: z.number().positive()
+export const validateAmount = z.object({
+  amount: z.coerce
+    .number()
+    .positive("Amount must be a positive number")
 });
-
 
 const router = Router();
 
@@ -158,7 +159,7 @@ router.post("/wallettransfer", auth, async (req: AuthRequest, res) => {
 
 router.post("/withdraw", auth, async (req: AuthRequest, res) => {
   try {
-    const parsed = validateWithDraw.safeParse(req.body);
+    const parsed = validateAmount.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
         message: "Invalid request",
