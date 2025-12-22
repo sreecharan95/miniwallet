@@ -6,10 +6,12 @@ import userRoutes from "./routes/userRoutes";
 import walletRoutes from "./routes/walletRoutes";
 import { sequelize } from "./config";
 import { createDatabaseIfNotExists } from "./utils/createDB";
+import cookieParser from "cookie-parser";
 
 dotenv.config();
 
 const app = express();
+app.use(cookieParser());
 app.use(express.json());
 app.use(limiter);
 app.use("/auth", userRoutes);

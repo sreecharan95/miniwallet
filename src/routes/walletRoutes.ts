@@ -1,20 +1,20 @@
 import { Router } from "express";
 import { sequelize } from "../config";
-import { auth, AuthRequest } from "../utils/auth";
+import { auth, AuthRequest } from "../utils/authUtils";
 import { Wallet } from "../models/modelRelations";
 import { WalletTransaction } from "../models/trasactionsModel";
-import { checkDailyLimit, convertCurrency } from "./commonUtils";
+import { checkDailyLimit, convertCurrency } from "../utils/commonUtils";
 
 const router = Router();
 
 router.get("/walletbalance", auth, async (req: AuthRequest, res) => {
-  const wallet = await Wallet.findOne({ where: { userId: req.user.id } });
+  const wallet = await Wallet.findOne({ where: { userId: req.userId } });
   res.json(wallet);
 });
 
 router.post("/addtowallet", auth, async (req: AuthRequest, res) => {
   const { amount, currency } = req.body;
-  const wallet = await Wallet.findOne({ where: { userId: req.user.id } });
+  const wallet = await Wallet.findOne({ where: { userId: req.userId } });
   const converted = convertCurrency(amount, currency, wallet!.currency);
   wallet!.balance = Number(wallet!.balance) + converted;
   
@@ -34,7 +34,7 @@ router.post("/wallettransfer", auth, async (req: AuthRequest, res) => {
   const t = await sequelize.transaction();
   
   try {
-    const fromWallet = await Wallet.findOne({ where: { userId: req.user.id }, lock: true, transaction: t });
+    const fromWallet = await Wallet.findOne({ where: { userId: req.userId }, lock: true, transaction: t });
     const toWallet = await Wallet.findOne({ where: { userId: toUserId }, lock: true, transaction: t });
     if (!fromWallet || !toWallet) throw new Error("Wallet not found");
     if (fromWallet.balance < amount) throw new Error("Insufficient funds");
@@ -59,7 +59,7 @@ router.post("/wallettransfer", auth, async (req: AuthRequest, res) => {
 });
 
 router.get("/wallettransactions", auth, async (req: AuthRequest, res) => {
-  const wallet = await Wallet.findOne({ where: { userId: req.user.id } });
+  const wallet = await Wallet.findOne({ where: { userId: req.userId } });
   const tx = await WalletTransaction.findAll({
     where: { walletId: wallet!.id },
     order: [["createdAt", "DESC"]]
