@@ -168,8 +168,6 @@ router.post("/withdraw", auth, async (req: AuthRequest, res) => {
     const userId = req.userId;
     const { amount } = req.body;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    if (!amount || amount <= 0)
-      return res.status(400).json({ message: "Invalid amount" });
     const result = await sequelize.transaction(async (t) => {
       const wallet = await Wallet.findOne({
         where: { userId },
