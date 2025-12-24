@@ -18,7 +18,6 @@ export const checkDailyLimit = async (walletId: string, amount: number) => {
   }
 };
 
-
 const rates: Record<string, number> = {
   USD: 1,
   EUR: 0.9,

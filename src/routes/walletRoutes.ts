@@ -30,7 +30,7 @@ router.get("/walletbalance", auth, async (req: AuthRequest, res) => {
   }
 });
 
-router.put("/currency", auth, async (req: AuthRequest, res) => {
+router.put("/changecurrency", auth, async (req: AuthRequest, res) => {
   const userId = req.userId;
   const { currency } = req.body;
   if (!currency) {
@@ -114,11 +114,11 @@ router.post("/wallettransfer", auth, async (req: AuthRequest, res) => {
     if (toUser.id === fromUserId) return res.status(400).json({ message: "Cannot transfer to yourself" });
     const fromWallet = await Wallet.findOne({ where: { userId: fromUserId } });
     const toWallet = await Wallet.findOne({ where: { userId: toUser.id } });
-   try {
-    await checkDailyLimit(fromWallet!.id, amount);
-  } catch (err: any) {
-    return res.status(400).json({ message: err.message });
-  }
+    try {
+      await checkDailyLimit(fromWallet!.id, amount);
+    } catch (err: any) {
+      return res.status(400).json({ message: err.message });
+    }
     if (!fromWallet || !toWallet) return res.status(404).json({ message: "Wallet not found" });
     const inputCurrency = (currency || fromWallet.currency).toUpperCase();
     const amountInFromCurrency = convertCurrency(amount, inputCurrency, fromWallet.currency);
@@ -176,7 +176,6 @@ router.post("/withdraw", auth, async (req: AuthRequest, res) => {
       });
       if (!wallet) throw new Error("WALLET_NOT_FOUND");
       if (Number(wallet.balance) < amount) throw new Error("INSUFFICIENT_FUNDS");
-      const balanceBefore = wallet.balance;
       await wallet.decrement({ balance: amount }, { transaction: t });
       await WalletTransaction.create(
         {
@@ -184,8 +183,7 @@ router.post("/withdraw", auth, async (req: AuthRequest, res) => {
           type: "DEBIT",
           amount,
           currency: wallet.currency,
-          balanceBefore,
-          balanceAfter: balanceBefore - amount
+          description: "Withdrwal from account"
         },
         { transaction: t }
       );
@@ -208,7 +206,6 @@ router.post("/withdraw", auth, async (req: AuthRequest, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 router.get("/wallettransactions", auth, async (req: AuthRequest, res) => {
   const wallet = await Wallet.findOne({ where: { userId: req.userId } });

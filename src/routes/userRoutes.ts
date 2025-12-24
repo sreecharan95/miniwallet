@@ -4,7 +4,6 @@ import jwt from "jsonwebtoken";
 import { User, Wallet } from "../models/modelRelations";
 import { auth, AuthRequest } from "../utils/authUtils";
 
-
 const router = Router();
 
 router.post("/registeruser", async (req, res) => {
@@ -26,7 +25,6 @@ router.post("/registeruser", async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 });
-
 
 router.post("/login", async (req, res) => {
   try {
@@ -51,7 +49,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-
 router.get("/currentuser", auth, async (req: AuthRequest, res) => {
   const user = await User.findByPk(req.userId, {
     attributes: ["id", "name", "email"]
@@ -67,6 +64,5 @@ router.post("/logout", auth, (req, res) => {
   });
   res.json({ message: "Logged out successfully" });
 });
-
 
 export default router;
