@@ -3,8 +3,16 @@ import cookieParser from "cookie-parser";
 import { limiter } from "./utils/ratelimiter";
 import userRoutes from "./routes/userRoutes";
 import walletRoutes from "./routes/walletRoutes";
+import cors from "cors";
 
 const app = express();
+
+app.use(
+  cors({
+    origin: "*", // allow for testing
+    credentials: true, 
+  })
+);
 
 app.use(express.json());
 app.use(cookieParser());

@@ -107,6 +107,13 @@ router.post("/wallettransfer", auth, async (req: AuthRequest, res) => {
   try {
     const fromUserId = req.userId;
     const { toEmail, amount, currency } = req.body;
+    const parsed = validateAmount.safeParse(req.body);
+    if (!parsed.success) {
+      const message = parsed.error.issues[0].message;
+      return res.status(400).json({
+        message,
+      });
+    }
     if (!fromUserId) return res.status(401).json({ message: "Unauthorized" });
     if (!toEmail || !amount || amount <= 0) return res.status(400).json({ message: "Invalid request" });
     const toUser = await User.findOne({ where: { email: toEmail } });
@@ -160,9 +167,10 @@ router.post("/wallettransfer", auth, async (req: AuthRequest, res) => {
 router.post("/withdraw", auth, async (req: AuthRequest, res) => {
   try {
     const parsed = validateAmount.safeParse(req.body);
-    if (!parsed.success) {
+     if (!parsed.success) {
+      const message = parsed.error.issues[0].message;
       return res.status(400).json({
-        message: "Invalid request",
+        message,
       });
     }
     const userId = req.userId;
