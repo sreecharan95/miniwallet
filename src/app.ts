@@ -9,10 +9,11 @@ const app = express();
 
 app.use(
   cors({
-    origin: "*", // allow for testing
-    credentials: true, 
+    origin: ["http://localhost:3000"], 
+    credentials: true,
   })
 );
+
 
 app.use(express.json());
 app.use(cookieParser());

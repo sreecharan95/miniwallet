@@ -6,7 +6,7 @@ import { auth, AuthRequest } from "../utils/authUtils";
 
 const router = Router();
 
-router.post("/registeruser", async (req, res) => {
+router.post("/register", async (req, res) => {
   try {
     const { name, email, password, currency  } = req.body;
     if (!name || !email || !password) {
@@ -49,7 +49,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.get("/currentuser", auth, async (req: AuthRequest, res) => {
+router.get("/current", auth, async (req: AuthRequest, res) => {
   const user = await User.findByPk(req.userId, {
     attributes: ["id", "name", "email"]
   });

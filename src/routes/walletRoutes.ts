@@ -6,184 +6,197 @@ import { WalletTransaction } from "../models/trasactionsModel";
 import { checkDailyLimit, convertCurrency } from "../utils/commonUtils";
 import { z } from "zod";
 
-export const validateAmount = z.object({
-  amount: z.coerce
-    .number()
-    .positive("Amount must be a positive number")
-});
-
 const router = Router();
 
-router.get("/walletbalance", auth, async (req: AuthRequest, res) => {
+const amountSchema = z.object({
+  amount: z.coerce.number().positive("Amount must be a positive number"),
+  currency: z.string().optional()
+});
+
+const transferSchema = z.object({
+  toEmail: z.email(),
+  amount: z.coerce.number().positive(),
+  currency: z.string().optional()
+});
+
+router.use(auth);
+
+router.get("/balance", async (req: AuthRequest, res) => {
   try {
     const wallet = await Wallet.findOne({
       where: { userId: req.userId },
-      attributes: ["balance", "currency"] 
+      attributes: ["balance", "currency"]
     });
     if (!wallet) {
       return res.status(404).json({ message: "Wallet not found" });
     }
     res.json(wallet);
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Internal server error" });
   }
 });
 
-router.put("/changecurrency", auth, async (req: AuthRequest, res) => {
-  const userId = req.userId;
-  const { currency } = req.body;
+router.put("/currency", async (req: AuthRequest, res) => {
+  const currency = req.body.currency?.toUpperCase();
   if (!currency) {
     return res.status(400).json({ message: "Currency required" });
   }
-  const newCurrency = currency.toUpperCase();
-  const wallet = await Wallet.findOne({ where: { userId } });
-  if (!wallet) {
-    return res.status(404).json({ message: "Wallet not found" });
-  }
-  if (!wallet.currency) {
-    wallet.currency = newCurrency;
-    await wallet.save();
-    return res.json({
-      message: "Currency set",
-      balance: wallet.balance,
-      currency: wallet.currency
-    });
-  }
-  if (wallet.currency === newCurrency) {
-    return res.json({
-      message: "Currency same as previous",
-      balance: wallet.balance,
-      currency: wallet.currency
-    });
-  }
-  const convertedBalance = convertCurrency(
-    Number(wallet.balance),
-    wallet.currency,
-    newCurrency
-  );
-  wallet.balance = convertedBalance;
-  wallet.currency = newCurrency;
-  await wallet.save();
-  return res.json({
-    message: "Balance converted",
-    balance: wallet.balance,
-    currency: wallet.currency
-  });
-});
-
-router.post("/addtowallet", auth, async (req: AuthRequest, res) => {
   try {
-    const { amount, currency } = req.body;
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: "Invalid amount" });
-    }
     const wallet = await Wallet.findOne({ where: { userId: req.userId } });
-    if (!wallet) {
-      return res.status(404).json({ message: "Wallet not found" });
+    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
+    if (!wallet.currency) {
+      wallet.currency = currency;
+      await wallet.save();
+      return res.json({
+        message: "Currency set",
+        balance: wallet.balance,
+        currency: wallet.currency
+      });
     }
-    const inputCurrency = (currency || wallet.currency).toUpperCase();
-    const convertedAmount = convertCurrency(amount, inputCurrency, wallet.currency);
-    await wallet.increment({ balance: convertedAmount });
-    await WalletTransaction.create({
-      walletId: wallet.id,
-      type: "CREDIT",
-      amount: convertedAmount,
-      currency: wallet.currency,
-      description: `Add funds (${amount} ${inputCurrency})`
-    });
+    if (wallet.currency === currency) {
+      return res.json({
+        message: "Currency unchanged",
+        balance: wallet.balance,
+        currency: wallet.currency
+      });
+    }
+    const convertedBalance = convertCurrency(
+      Number(wallet.balance),
+      wallet.currency,
+      currency
+    );
+    wallet.balance = convertedBalance;
+    wallet.currency = currency;
+    await wallet.save();
     res.json({
-      message: "Funds added to wallet",
-      balance: wallet.balance + convertedAmount,
+      message: "Currency updated",
+      balance: wallet.balance,
       currency: wallet.currency
     });
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Internal server error" });
   }
 });
 
-router.post("/wallettransfer", auth, async (req: AuthRequest, res) => {
+router.post("/deposit", async (req: AuthRequest, res) => {
+  const parsed = amountSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.issues[0].message });
+  }
+  const { amount, currency } = parsed.data;
   try {
-    const fromUserId = req.userId;
-    const { toEmail, amount, currency } = req.body;
-    const parsed = validateAmount.safeParse(req.body);
-    if (!parsed.success) {
-      const message = parsed.error.issues[0].message;
-      return res.status(400).json({
-        message,
-      });
-    }
-    if (!fromUserId) return res.status(401).json({ message: "Unauthorized" });
-    if (!toEmail || !amount || amount <= 0) return res.status(400).json({ message: "Invalid request" });
-    const toUser = await User.findOne({ where: { email: toEmail } });
-    if (!toUser) return res.status(404).json({ message: "Recipient not found" });
-    if (toUser.id === fromUserId) return res.status(400).json({ message: "Cannot transfer to yourself" });
-    const fromWallet = await Wallet.findOne({ where: { userId: fromUserId } });
-    const toWallet = await Wallet.findOne({ where: { userId: toUser.id } });
-    try {
-      await checkDailyLimit(fromWallet!.id, amount);
-    } catch (err: any) {
-      return res.status(400).json({ message: err.message });
-    }
-    if (!fromWallet || !toWallet) return res.status(404).json({ message: "Wallet not found" });
-    const inputCurrency = (currency || fromWallet.currency).toUpperCase();
-    const amountInFromCurrency = convertCurrency(amount, inputCurrency, fromWallet.currency);
-    if (fromWallet.balance < amountInFromCurrency) {
-      return res.status(400).json({ message: "Insufficient funds" });
-    }
-    const amountInToCurrency = convertCurrency(amount, inputCurrency, toWallet.currency);
+    const wallet = await Wallet.findOne({ where: { userId: req.userId } });
+    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
+    const inputCurrency = (currency || wallet.currency).toUpperCase();
+    const convertedAmount = convertCurrency(amount, inputCurrency, wallet.currency);
     await sequelize.transaction(async (t) => {
-      await fromWallet.decrement({ balance: amountInFromCurrency }, { transaction: t });
+      await wallet.increment({ balance: convertedAmount }, { transaction: t });
       await WalletTransaction.create(
         {
-          walletId: fromWallet.id,
-          type: "DEBIT",
-          amount: amountInFromCurrency,
-          currency: fromWallet.currency,
-          description: `Transfer to ${toUser.email}`
+          walletId: wallet.id,
+          type: "CREDIT",
+          amount: convertedAmount,
+          currency: wallet.currency,
+          description: `Deposit ${amount} ${inputCurrency}`
         },
         { transaction: t }
       );
-      await toWallet.increment({ balance: amountInToCurrency }, { transaction: t });
-      await WalletTransaction.create(
-        {
-          walletId: toWallet.id,
-          type: "CREDIT",
-          amount: amountInToCurrency,
-          currency: toWallet.currency,
-          description: `Transfer from ${fromWallet.userId}`
-        },
+    });
+    await wallet.reload();
+    res.json({
+      message: "Deposit successful",
+      balance: wallet.balance,
+      currency: wallet.currency
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+router.post("/transfer", async (req: AuthRequest, res) => {
+  const parsed = transferSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.issues[0].message });
+  }
+  const { toEmail, amount, currency } = parsed.data;
+  try {
+    await sequelize.transaction(async (t) => {
+      const fromWallet = await Wallet.findOne({
+        where: { userId: req.userId },
+        lock: t.LOCK.UPDATE,
+        transaction: t
+      });
+      if (!fromWallet) throw new Error("WALLET_NOT_FOUND");
+      await checkDailyLimit(fromWallet.id, amount);
+      const toUser = await User.findOne({ where: { email: toEmail }, transaction: t });
+      if (!toUser) throw new Error("RECIPIENT_NOT_FOUND");
+      if (toUser.id === req.userId) throw new Error("SELF_TRANSFER");
+      const toWallet = await Wallet.findOne({
+        where: { userId: toUser.id },
+        lock: t.LOCK.UPDATE,
+        transaction: t
+      });
+      if (!toWallet) throw new Error("RECIPIENT_WALLET_NOT_FOUND");
+      const inputCurrency = (currency || fromWallet.currency).toUpperCase();
+      const debitAmount = convertCurrency(amount, inputCurrency, fromWallet.currency);
+      if (fromWallet.balance < debitAmount) {
+        throw new Error("INSUFFICIENT_FUNDS");
+      }
+      const creditAmount = convertCurrency(amount, inputCurrency, toWallet.currency);
+      await fromWallet.decrement({ balance: debitAmount }, { transaction: t });
+      await toWallet.increment({ balance: creditAmount }, { transaction: t });
+      await WalletTransaction.bulkCreate(
+        [
+          {
+            walletId: fromWallet.id,
+            type: "DEBIT",
+            amount: debitAmount,
+            currency: fromWallet.currency,
+            description: `Transfer to ${toEmail}`
+          },
+          {
+            walletId: toWallet.id,
+            type: "CREDIT",
+            amount: creditAmount,
+            currency: toWallet.currency,
+            description: `Transfer from user ${req.userId}`
+          }
+        ],
         { transaction: t }
       );
     });
     res.json({ message: "Transfer successful" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Internal server error" });
+  } catch (err: any) {
+    const map: Record<string, number> = {
+      WALLET_NOT_FOUND: 404,
+      RECIPIENT_NOT_FOUND: 404,
+      RECIPIENT_WALLET_NOT_FOUND: 404,
+      INSUFFICIENT_FUNDS: 400,
+      SELF_TRANSFER: 400
+    };
+    const status = map[err.message] || 500;
+    res.status(status).json({ message: err.message || "Internal server error" });
   }
 });
 
-router.post("/withdraw", auth, async (req: AuthRequest, res) => {
+router.post("/withdraw", async (req: AuthRequest, res) => {
+  const parsed = amountSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.issues[0].message });
+  }
+  const { amount } = parsed.data;
   try {
-    const parsed = validateAmount.safeParse(req.body);
-     if (!parsed.success) {
-      const message = parsed.error.issues[0].message;
-      return res.status(400).json({
-        message,
-      });
-    }
-    const userId = req.userId;
-    const { amount } = req.body;
-    if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    const result = await sequelize.transaction(async (t) => {
+    const wallet = await sequelize.transaction(async (t) => {
       const wallet = await Wallet.findOne({
-        where: { userId },
-        transaction: t,
-        lock: t.LOCK.UPDATE
+        where: { userId: req.userId },
+        lock: t.LOCK.UPDATE,
+        transaction: t
       });
       if (!wallet) throw new Error("WALLET_NOT_FOUND");
-      if (Number(wallet.balance) < amount) throw new Error("INSUFFICIENT_FUNDS");
+      if (wallet.balance < amount) throw new Error("INSUFFICIENT_FUNDS");
       await wallet.decrement({ balance: amount }, { transaction: t });
       await WalletTransaction.create(
         {
@@ -191,37 +204,43 @@ router.post("/withdraw", auth, async (req: AuthRequest, res) => {
           type: "DEBIT",
           amount,
           currency: wallet.currency,
-          description: "Withdrwal from account"
+          description: "Withdrawal"
         },
         { transaction: t }
       );
       return wallet;
     });
-    await result.reload(); 
-    return res.json({
+    await wallet.reload();
+    res.json({
       message: "Withdrawal successful",
-      balance: result.balance,
-      currency: result.currency
+      balance: wallet.balance,
+      currency: wallet.currency
     });
-  } catch (error: any) {
-    if (error.message === "INSUFFICIENT_FUNDS") {
+  } catch (err: any) {
+    if (err.message === "INSUFFICIENT_FUNDS") {
       return res.status(400).json({ message: "Insufficient funds" });
     }
-    if (error.message === "WALLET_NOT_FOUND") {
+    if (err.message === "WALLET_NOT_FOUND") {
       return res.status(404).json({ message: "Wallet not found" });
     }
-    console.error(error);
-    return res.status(500).json({ message: "Internal server error" });
+    console.error(err);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 
-router.get("/wallettransactions", auth, async (req: AuthRequest, res) => {
-  const wallet = await Wallet.findOne({ where: { userId: req.userId } });
-  const tx = await WalletTransaction.findAll({
-    where: { walletId: wallet!.id },
-    order: [["createdAt", "DESC"]]
-  });
-  res.json(tx);
+router.get("/transactions", async (req: AuthRequest, res) => {
+  try {
+    const wallet = await Wallet.findOne({ where: { userId: req.userId } });
+    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
+    const tx = await WalletTransaction.findAll({
+      where: { walletId: wallet.id },
+      order: [["createdAt", "DESC"]]
+    });
+    res.json(tx);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Internal server error" });
+  }
 });
 
 export default router;
